@@ -11,13 +11,28 @@ import (
 
 // Config represents the application configuration
 type Config struct {
-	Server  ServerConfig  `yaml:"server"`
+	Server   ServerConfig   `yaml:"server"`
 	Database DatabaseConfig `yaml:"database"`
-	Loki    LokiConfig    `yaml:"loki"`
-	S3      S3Config      `yaml:"s3"`
-	Sentry  SentryConfig  `yaml:"sentry"`
-	Swagger SwaggerConfig `yaml:"swagger"`
-	LLM     LLMConfig     `yaml:"llm"`
+	Loki     LokiConfig     `yaml:"loki"`
+	S3       S3Config       `yaml:"s3"`
+	Sentry   SentryConfig   `yaml:"sentry"`
+	Swagger  SwaggerConfig  `yaml:"swagger"`
+	LLM      LLMConfig      `yaml:"llm"`
+	Auth     AuthConfig     `yaml:"auth"`
+}
+
+// AuthConfig represents the authentication configuration
+type AuthConfig struct {
+	Enabled bool     `yaml:"enabled"`
+	APIKeys []APIKey `yaml:"api_keys"`
+}
+
+// APIKey represents an API key for authentication
+type APIKey struct {
+	Name    string   `yaml:"name"`
+	Key     string   `yaml:"key"`
+	Roles   []string `yaml:"roles"`
+	Enabled bool     `yaml:"enabled"`
 }
 
 // ServerConfig represents the server configuration

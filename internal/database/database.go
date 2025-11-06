@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"dev-mcp/internal/config"
+
 	_ "github.com/go-sql-driver/mysql"
 )
 
@@ -31,6 +32,38 @@ func New(cfg *config.DatabaseConfig) (*DB, error) {
 	}
 
 	return &DB{db}, nil
+}
+
+// GetTables returns a list of all tables in the database
+func (db *DB) GetTables() ([]string, error) {
+	query := `
+		SELECT table_name 
+		FROM information_schema.tables 
+		WHERE table_schema = DATABASE()
+		ORDER BY table_name
+	`
+
+	rows, err := db.DB.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query tables: %w", err)
+	}
+	defer rows.Close()
+
+	var tables []string
+	for rows.Next() {
+		var tableName string
+		err := rows.Scan(&tableName)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan table name: %w", err)
+		}
+		tables = append(tables, tableName)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating rows: %w", err)
+	}
+
+	return tables, nil
 }
 
 // GetTableSchema returns the schema of a table

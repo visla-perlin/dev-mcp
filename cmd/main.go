@@ -1,16 +1,12 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
-	"os/signal"
-	"syscall"
 
 	"dev-mcp/internal/config"
 	"dev-mcp/internal/database"
-	"dev-mcp/internal/llm"
 	"dev-mcp/internal/loki"
 	"dev-mcp/internal/mcp/server"
 	"dev-mcp/internal/s3"
@@ -20,182 +16,54 @@ import (
 )
 
 func main() {
-	// Load configuration
+	// Check for debug mode (for future use)
+	for _, arg := range os.Args {
+		if arg == "--debug" || arg == "-d" {
+			fmt.Println("Debug mode enabled")
+			break
+		}
+	}
+
+	// Parse command line arguments for transport mode
+	transportMode := "sse" // Force SSE mode as default
+	var mcpMode bool
+
+	for i, arg := range os.Args {
+		if arg == "mcp" {
+			mcpMode = true
+		} else if arg == "--transport" || arg == "-t" {
+			if i+1 < len(os.Args) {
+				transportMode = os.Args[i+1]
+			}
+		} else if arg == "--sse" {
+			transportMode = "sse"
+		} else if arg == "--http" {
+			transportMode = "http"
+		} else if arg == "--stdio" {
+			// Force SSE even for stdio requests
+			transportMode = "sse"
+			fmt.Println("Note: stdio mode forced to SSE mode")
+		}
+	}
+
+	// Check if we should start in MCP mode
+	if mcpMode {
+		startMCPServer(transportMode)
+		return
+	} // Load configuration for testing/demo mode
 	cfg, err := config.Load("./configs/config.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
 	fmt.Println("Dev MCP initialized successfully!")
-	fmt.Printf("Server listening on %s:%d\n", cfg.Server.Host, cfg.Server.Port)
+	fmt.Printf("Configuration loaded from config.yaml\n")
 
-	// Initialize database client
-	var db *database.DB
-	db, err = database.New(&cfg.Database)
-	if err != nil {
-		log.Printf("Warning: Failed to initialize database: %v", err)
+	// Run health check to verify all services
+	if err := healthCheck(cfg); err != nil {
+		log.Printf("Health check failed: %v", err)
 	} else {
-		defer db.Close()
-		fmt.Println("Database client initialized")
-	}
-
-	// Initialize Loki client
-	lokiClient := loki.New(&cfg.Loki)
-	_ = lokiClient
-	fmt.Println("Loki client initialized")
-
-	// Initialize S3 client
-	var s3Client *s3.Client
-	s3Client, err = s3.New(&cfg.S3)
-	if err != nil {
-		log.Printf("Warning: Failed to initialize S3 client: %v", err)
-	} else {
-		_ = s3Client
-		fmt.Println("S3 client initialized")
-	}
-
-	// Initialize Sentry client
-	var sentryClient *sentry.Client
-	sentryClient, err = sentry.New(&cfg.Sentry)
-	if err != nil {
-		log.Printf("Warning: Failed to initialize Sentry client: %v", err)
-	} else {
-		defer sentryClient.Close()
-		fmt.Println("Sentry client initialized")
-	}
-
-	// Initialize Swagger client
-	var swaggerClient *swagger.Client
-	swaggerClient, err = swagger.New(&cfg.Swagger)
-	if err != nil {
-		log.Printf("Warning: Failed to initialize Swagger client: %v", err)
-	} else {
-		_ = swaggerClient
-		fmt.Println("Swagger client initialized")
-	}
-
-	// Initialize LLM service
-	var llmService *llm.Service
-	llmService, err = llm.NewService(cfg)
-	if err != nil {
-		log.Printf("Warning: Failed to initialize LLM service: %v", err)
-	} else {
-		defer llmService.Close()
-		fmt.Println("LLM service initialized")
-
-		// Perform health check
-		if err := llmService.HealthCheck(nil); err != nil {
-			log.Printf("Warning: LLM service health check failed: %v", err)
-		} else {
-			fmt.Println("LLM service health check passed")
-		}
-	}
-
-	// Initialize simulator client
-	simulatorClient := simulator.New()
-	fmt.Println("Simulator client initialized")
-
-	// Check if we should start in MCP mode
-	if len(os.Args) > 1 && os.Args[1] == "mcp" {
-		// Start MCP server using official SDK
-		mcpServer := server.NewMCPServer(
-			db,
-			lokiClient,
-			s3Client,
-			sentryClient,
-			swaggerClient,
-			llmService,
-			simulatorClient,
-		)
-
-		fmt.Println("Starting MCP server with official SDK...")
-
-		// Create a context for graceful shutdown
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		// Handle graceful shutdown
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-		// Start server in goroutine
-		serverErrCh := make(chan error, 1)
-		go func() {
-			if err := mcpServer.Start(ctx); err != nil {
-				serverErrCh <- err
-			}
-		}()
-
-		// Wait for shutdown signal or server error
-		select {
-		case err := <-serverErrCh:
-			log.Fatalf("MCP server error: %v", err)
-		case sig := <-sigCh:
-			fmt.Printf("\nReceived signal %v, shutting down gracefully...\n", sig)
-			cancel()
-			mcpServer.Close()
-		}
-
-		return
-	}
-
-	// Example usage of the clients
-	fmt.Println("\n--- Example Usage ---")
-
-	// Example: Database query (only if connected)
-	if db != nil {
-		fmt.Println("Database connected - ready to query tables and data")
-	}
-
-	// Example: Loki query
-	fmt.Println("Loki client ready - can query logs with LogQL")
-
-	// Example: S3 access (only if configured)
-	if s3Client != nil {
-		fmt.Println("S3 client ready - can access JSON data from S3 URLs")
-	}
-
-	// Example: Sentry integration
-	if sentryClient != nil {
-		sentryClient.CaptureMessage("Dev MCP started successfully", "info", map[string]string{
-			"component": "main",
-		})
-		fmt.Println("Sentry integration ready - can capture exceptions and messages")
-	}
-
-	// Example: Swagger parsing (only if configured)
-	if swaggerClient != nil {
-		fmt.Println("Swagger client ready - can parse API specifications")
-	}
-
-	// Example: LLM service (only if configured)
-	if llmService != nil {
-		fmt.Println("LLM service ready - can process natural language queries")
-
-		// List available models
-		models, err := llmService.ListModels(nil)
-		if err != nil {
-			log.Printf("Warning: Failed to list LLM models: %v", err)
-		} else {
-			fmt.Printf("Available LLM models: %v\n", models)
-		}
-	}
-
-	// Example: Request simulation
-	simReq := &simulator.Request{
-		Method: "GET",
-		URL:    "https://httpbin.org/get",
-		Headers: map[string]string{
-			"User-Agent": "Dev-MCP/1.0",
-		},
-		Timeout: 10,
-	}
-
-	resp, err := simulatorClient.Simulate(simReq)
-	if err != nil {
-		log.Printf("Warning: Failed to simulate request: %v", err)
-	} else {
-		fmt.Printf("Simulated request successful - Status: %d, Time: %v\n", resp.StatusCode, resp.TimeTaken)
+		fmt.Println("✓ All services health check passed")
 	}
 
 	fmt.Println("\nDev MCP is ready to use!")
@@ -207,17 +75,50 @@ func main() {
 	fmt.Println("  - Swagger API specification parsing")
 	fmt.Println("  - Large Language Models (LLM) service")
 	fmt.Println("  - HTTP request simulation")
+	fmt.Println("\nTo start as MCP server, run: go run cmd/main.go mcp")
 
-	// Keep the program running
-	select {}
+	// Exit gracefully instead of infinite wait
+	return
 }
 
-// healthCheck performs a basic health check of all services
+// startMCPServer initializes and starts the MCP server with transport mode support
+func startMCPServer(transportMode string) {
+	fmt.Printf("🚀 Starting MCP server with transport mode: %s\n", transportMode)
+
+	// Force SSE mode as requested
+	if transportMode != "sse" {
+		fmt.Printf("Note: %s mode forced to SSE mode\n", transportMode)
+		transportMode = "sse"
+	}
+
+	// Load configuration using existing API
+	cfg, err := config.Load("./configs/config.yaml")
+	if err != nil {
+		log.Fatalf("Failed to load config: %v", err)
+	}
+
+	log.Println("Starting Dev MCP Server...")
+
+	// Initialize all services
+	services := server.InitializeServices(cfg)
+	defer services.Close()
+
+	// Create the enhanced MCP server using our refactored implementation
+	mcpServer := server.NewMCPServer(cfg, services)
+
+	log.Printf("🚀 Starting MCP server with %s transport mode...\n", transportMode)
+	log.Printf("Authentication enabled: %t\n", cfg.Auth.Enabled)
+
+	// Start server with the specified transport mode
+	if err := mcpServer.Start(transportMode); err != nil {
+		log.Fatalf("MCP server failed: %v", err)
+	}
+} // healthCheck performs a basic health check of all services
 func healthCheck(cfg *config.Config) error {
 	fmt.Println("Performing health check...")
 
 	// Check database connection
-	db, err := database.New(&cfg.Database)
+	db, err := database.NewEnhanced(&cfg.Database)
 	if err != nil {
 		return fmt.Errorf("database connection failed: %w", err)
 	}

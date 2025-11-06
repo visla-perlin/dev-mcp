@@ -49,3 +49,20 @@ llm:
       endpoint: "http://localhost:8000/v1"
       enabled: false
       model: "llama-2-7b"
+
+# Authentication Configuration
+auth:
+  enabled: true
+  api_keys:
+    - name: "admin"
+      key: "mcp_admin_key_12345"
+      roles: ["admin"]
+      enabled: true
+    - name: "client1"
+      key: "mcp_client1_key_67890"
+      roles: ["read", "write"]
+      enabled: true
+    - name: "monitor"
+      key: "mcp_monitor_key_abcde"
+      roles: ["monitor"]
+      enabled: true

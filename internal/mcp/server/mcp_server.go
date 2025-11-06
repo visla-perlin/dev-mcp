@@ -2,202 +2,169 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/modelcontextprotocol/go-sdk/mcp/transport"
 
+	"dev-mcp/internal/auth"
+	"dev-mcp/internal/config"
 	"dev-mcp/internal/database"
-	"dev-mcp/internal/llm"
-	"dev-mcp/internal/loki"
+	"dev-mcp/internal/errors"
+	"dev-mcp/internal/logging"
+	"dev-mcp/internal/mcp/resources"
 	"dev-mcp/internal/mcp/tools"
-	"dev-mcp/internal/s3"
-	"dev-mcp/internal/sentry"
-	"dev-mcp/internal/simulator"
-	"dev-mcp/internal/swagger"
 )
 
 // MCPServer represents an MCP server using the official Go SDK
 type MCPServer struct {
-	server       *mcp.Server
-	tools        []tools.Tool
-	toolsByName  map[string]tools.Tool
-	db           *database.DB
-	lokiClient   *loki.Client
-	s3Client     *s3.Client
-	sentryClient *sentry.Client
-	swaggerClient *swagger.Client
-	llmService   *llm.Service
-	simulatorClient *simulator.Client
+	server         *mcp.Server
+	services       *ServiceContainer
+	authConfig     *auth.AuthConfig
+	authMiddleware *auth.Middleware
+	serviceManager *config.ServiceManager
 }
 
 // NewMCPServer creates a new MCP server using the official SDK
-func NewMCPServer(
-	db *database.DB,
-	lokiClient *loki.Client,
-	s3Client *s3.Client,
-	sentryClient *sentry.Client,
-	swaggerClient *swagger.Client,
-	llmService *llm.Service,
-	simulatorClient *simulator.Client,
-) *MCPServer {
-	// Create MCP server
+func NewMCPServer(cfg *config.Config, services *ServiceContainer) *MCPServer {
+	// Create MCP server with implementation info
 	server := mcp.NewServer(
-		"dev-mcp-server",
-		"1.0.0",
-		mcp.WithServerInfo(mcp.ServerInfo{
-			Name:    "Dev MCP Server",
+		&mcp.Implementation{
+			Name:    "dev-mcp-server",
 			Version: "1.0.0",
-		}),
+		},
+		nil, // No options for now
 	)
 
-	mcpServer := &MCPServer{
-		server:          server,
-		tools:           make([]tools.Tool, 0),
-		toolsByName:     make(map[string]tools.Tool),
-		db:              db,
-		lokiClient:      lokiClient,
-		s3Client:        s3Client,
-		sentryClient:    sentryClient,
-		swaggerClient:   swaggerClient,
-		llmService:      llmService,
-		simulatorClient: simulatorClient,
+	// Convert config.AuthConfig to auth.AuthConfig
+	authConfig := &auth.AuthConfig{
+		Enabled: cfg.Auth.Enabled,
+		APIKeys: make([]auth.APIKey, len(cfg.Auth.APIKeys)),
 	}
 
-	// Initialize tools
-	mcpServer.initializeTools()
+	// Convert API keys
+	for i, apiKey := range cfg.Auth.APIKeys {
+		authConfig.APIKeys[i] = auth.APIKey{
+			Name:    apiKey.Name,
+			Key:     apiKey.Key,
+			Roles:   apiKey.Roles,
+			Enabled: apiKey.Enabled,
+		}
+	}
 
-	// Register tools with MCP server
+	mcpServer := &MCPServer{
+		server:         server,
+		services:       services,
+		authConfig:     authConfig,
+		authMiddleware: auth.NewMiddleware(authConfig),
+		serviceManager: config.NewServiceManager(cfg),
+	}
+
+	// Initialize and register tools
 	mcpServer.registerTools()
+
+	// Register resources
+	mcpServer.registerResources()
 
 	return mcpServer
 }
 
-// initializeTools initializes all MCP tools
-func (s *MCPServer) initializeTools() {
-	// Add database query tool if database is available
-	if s.db != nil {
-		dbTool := tools.NewDatabaseQueryTool(s.db)
-		s.tools = append(s.tools, dbTool)
-		s.toolsByName[dbTool.Name()] = dbTool
-	}
-
-	// Add Loki query tool if Loki client is available
-	if s.lokiClient != nil {
-		lokiTool := tools.NewLokiQueryTool(s.lokiClient)
-		s.tools = append(s.tools, lokiTool)
-		s.toolsByName[lokiTool.Name()] = lokiTool
-	}
-
-	// Add S3 query tool if S3 client is available
-	if s.s3Client != nil {
-		s3Tool := tools.NewS3QueryTool(s.s3Client)
-		s.tools = append(s.tools, s3Tool)
-		s.toolsByName[s3Tool.Name()] = s3Tool
-	}
-
-	// Add Sentry query tool if Sentry client is available
-	if s.sentryClient != nil {
-		sentryTool := tools.NewSentryQueryTool(s.sentryClient)
-		s.tools = append(s.tools, sentryTool)
-		s.toolsByName[sentryTool.Name()] = sentryTool
-	}
-
-	// Add Swagger query tool if Swagger client is available
-	if s.swaggerClient != nil {
-		swaggerTool := tools.NewSwaggerQueryTool(s.swaggerClient)
-		s.tools = append(s.tools, swaggerTool)
-		s.toolsByName[swaggerTool.Name()] = swaggerTool
-	}
-
-	// Add LLM tool if LLM service is available
-	if s.llmService != nil {
-		llmTool := tools.NewLLMTool(s.llmService)
-		s.tools = append(s.tools, llmTool)
-		s.toolsByName[llmTool.Name()] = llmTool
-	}
-
-	// Add simulator tool if simulator client is available
-	if s.simulatorClient != nil {
-		simulatorTool := tools.NewSimulatorTool(s.simulatorClient)
-		s.tools = append(s.tools, simulatorTool)
-		s.toolsByName[simulatorTool.Name()] = simulatorTool
-	}
-}
-
-// registerTools registers tools with the MCP server
+// registerTools registers all available tools with the MCP server
 func (s *MCPServer) registerTools() {
-	for _, tool := range s.tools {
-		s.server.AddTool(
-			mcp.Tool{
-				Name:        tool.Name(),
-				Description: tool.Description(),
-				InputSchema: mcp.ToolInputSchema{
-					Type:       "object",
-					Properties: tool.InputSchema(),
-				},
-			},
-			s.handleToolCall(tool.Name(), tool),
-		)
+	logger := logging.ServerLogger
+	logger.Info("Registering MCP tools...")
+
+	// Create tool registry
+	registry := tools.NewToolRegistry(s, s.serviceManager)
+
+	// Create tool context with all available services
+	toolContext := &tools.ToolContext{
+		DatabaseManager: s.services.DatabaseManager,
+		LokiClient:      s.services.LokiClient,
+		S3Client:        s.services.S3Client,
+		SentryClient:    s.services.SentryClient,
+		SwaggerClient:   s.services.SwaggerClient,
+		SimulatorClient: s.services.SimulatorClient,
+		ServiceManager:  s.serviceManager,
 	}
+
+	// Register all tools
+	registry.RegisterAll(toolContext)
+
+	logger.Info("All available tools registered successfully")
 }
 
-// handleToolCall returns a handler function for tool calls
-func (s *MCPServer) handleToolCall(toolName string, tool tools.Tool) mcp.ToolHandler {
-	return func(ctx context.Context, arguments map[interface{}]interface{}) (*mcp.CallToolResult, error) {
-		// Convert the map[interface{}]interface{} to map[string]interface{}
-		args := make(map[string]interface{})
-		for k, v := range arguments {
-			if keyStr, ok := k.(string); ok {
-				args[keyStr] = v
-			}
-		}
+// registerResources registers all available resources with the MCP server
+func (s *MCPServer) registerResources() {
+	logger := logging.ServerLogger
+	logger.Info("Registering MCP resources...")
 
-		// Execute the tool
-		result, err := tool.Execute(ctx, args)
-		if err != nil {
-			return &mcp.CallToolResult{
-				Content: []mcp.Content{
-					{
-						Type: "text",
-						Text: fmt.Sprintf("Tool execution error: %v", err),
-					},
-				},
-				IsError: true,
-			}, err
-		}
+	ctx := context.Background()
 
-		// Convert result content
-		content := make([]mcp.Content, 0)
-		for _, c := range result.Content {
-            if textContent, isText := c.(map[string]interface{})["text"].(string); isText {
-                content = append(content, mcp.Content{
-                    Type: "text",
-                    Text: textContent,
-                })
-            }
+	// Get all resources from different resource managers
+	var db *database.DB
+	if s.services.DatabaseManager != nil && s.services.DatabaseManager.GetDatabase() != nil {
+		// Create a wrapper to convert DatabaseInterface to DB for resource queries
+		if enhancedDB, ok := s.services.DatabaseManager.GetDatabase().(*database.EnhancedDB); ok {
+			db = &database.DB{DB: enhancedDB.GetDB()}
 		}
-
-		return &mcp.CallToolResult{
-			Content: content,
-			IsError: result.IsError,
-		}, nil
 	}
+	allResources := resources.GetAllResources(ctx, db, s.services.LokiClient, s.services.S3Client, s.services.SwaggerClient)
+
+	// Register each resource with the server
+	for _, resDef := range allResources {
+		s.server.AddResource(resDef.Resource, resDef.Handler)
+		logger.Info("Registered resource", logging.String("uri", resDef.Resource.URI))
+	}
+
+	logger.Info("All available resources registered successfully", logging.Int("count", len(allResources)))
 }
 
-// Start starts the MCP server
-func (s *MCPServer) Start(ctx context.Context) error {
-	// Create a new stdio transport for the server
-    transport := transport.NewStdioTransport()
-
-    // Start the server with the transport
-    return s.server.Serve(ctx, transport)
+// RegisterTool adds a tool to the MCP server and logs it
+func (s *MCPServer) RegisterTool(toolDef tools.ToolDefinition) {
+	s.server.AddTool(toolDef.Tool, toolDef.Handler)
+	logging.ServerLogger.Info("Registered tool", logging.String("name", toolDef.Tool.Name))
 }
 
-// Close closes the MCP server
+// AddResource adds a resource to the MCP server
+func (s *MCPServer) AddResource(resource *mcp.Resource, handler mcp.ResourceHandler) {
+	s.server.AddResource(resource, handler)
+	log.Printf("Registered resource: %s", resource.URI)
+}
+
+// Start starts the MCP server with the specified transport mode
+func (s *MCPServer) Start(transportMode string) error {
+	logger := logging.ServerLogger
+	logger.Info("Starting MCP server with authentication",
+		logging.String("transport", transportMode),
+		logging.String("auth_enabled", fmt.Sprintf("%t", s.authConfig.Enabled)))
+
+	// Create context for the server
+	ctx := context.Background()
+
+	// Force SSE mode and use authenticated transport
+	if transportMode != "sse" {
+		logger.Info("forcing SSE mode for authentication support",
+			logging.String("original_mode", transportMode))
+		transportMode = "sse"
+	}
+
+	// Create authenticated SSE transport
+	authTransport := NewAuthenticatedSSETransport(s.authConfig, 8080)
+
+	// Start the authenticated transport
+	logger.Info("starting authenticated SSE transport on port 8080")
+	if err := authTransport.Start(ctx, s.server); err != nil {
+		return errors.ServerWrap(err, "start", "failed to start authenticated SSE transport")
+	}
+
+	return nil
+}
+
+// Close closes the MCP server and performs cleanup
 func (s *MCPServer) Close() {
-	// The MCP server doesn't have an explicit Close method in the current SDK
+	logger := logging.ServerLogger
+	logger.Info("Closing MCP server...")
 	// Any cleanup can be done here if needed
+	// The official SDK handles the server lifecycle
 }

@@ -1,5 +1,7 @@
 # Dev MCP - Development Multi-Cloud Platform
 
+> **🔄 Recently Refactored**: This project has been completely refactored to use the **official Model Context Protocol (MCP) Go SDK**, ensuring standards compliance, type safety, and enhanced transport support with SSE as the forced default mode.
+
 Dev MCP is a Go-based platform that provides a unified interface for querying various data sources including databases, Grafana Loki, S3, Sentry, and Swagger APIs. It also includes a built-in HTTP request simulator for testing purposes. The platform supports both standalone mode and MCP (Model Context Protocol) mode for integration with AI assistants.
 
 ## Features
@@ -13,12 +15,41 @@ Dev MCP is a Go-based platform that provides a unified interface for querying va
 - **HTTP Request Simulation**: Simulate HTTP requests for testing
 - **MCP Protocol Support**: Expose all functionality as MCP tools for AI assistant integration
 
+## Architecture
+
+### Official MCP Framework Integration
+
+Dev MCP has been completely refactored to use the **official Model Context Protocol (MCP) Go SDK** (`github.com/modelcontextprotocol/go-sdk`), providing:
+
+- **Standards Compliance**: Full compatibility with the official MCP specification
+- **Type Safety**: Strongly typed tool definitions and content handling
+- **Transport Flexibility**: Support for multiple transport modes (stdio, SSE, HTTP)
+- **Resource Management**: Automatic discovery and registration of database tables, log streams, S3 data, and API specifications
+- **Structured Logging**: Component-based logging system with debug mode support
+- **Error Handling**: Comprehensive error handling with context preservation
+
+### Key Refactoring Highlights
+
+1. **Tool System Refactoring**: Complete rewrite using `ToolDefinition` structure with official SDK compatibility
+2. **Server Implementation**: Migrated from custom implementation to official SDK `Connect` method
+3. **Transport Layer**: Enhanced support for multiple transport modes with SSE as the forced default
+4. **Resource Discovery**: Automatic resource management system for databases, logs, APIs, and documentation
+5. **Unified Entry Point**: Streamlined main.go with mode selection and transport configuration
+
+### MCP Protocol Implementation
+
+The server implements the Model Context Protocol with:
+- **Tools**: 7 different tool types (database, Loki, S3, Sentry, Swagger, LLM, simulator)
+- **Resources**: Dynamic resource discovery for databases, logs, S3 buckets, and API specs
+- **Transport**: SSE-first approach with fallback support for stdio and HTTP
+- **Content Types**: Full support for text, images, and structured data through official MCP types
+
 ## Project Structure
 
 ```
 dev-mcp/
 ├── cmd/
-│   └── main.go          # Main application entry point
+│   └── main.go          # Main application entry point with transport mode support
 ├── configs/
 │   └── config.yaml      # Main configuration file
 ├── internal/
@@ -30,11 +61,21 @@ dev-mcp/
 │   ├── swagger/         # Swagger API parsing
 │   ├── llm/             # Large Language Models service
 │   ├── simulator/       # HTTP request simulation
-│   └── mcp/             # MCP protocol implementation
+│   ├── logging/         # Structured logging system (NEW)
+│   ├── errors/          # Error handling with context (NEW)
+│   └── mcp/             # Official MCP protocol implementation
+│       ├── server/      # MCP server with official SDK
+│       ├── tools/       # Tool definitions using official SDK
+│       ├── resources/   # Resource discovery and management (NEW)
+│       └── types/       # MCP type definitions
+├── scripts/             # Utility scripts including transport mode tests
+│   ├── test-mcp.bat     # MCP functionality tests (Windows)
+│   ├── test-mcp.sh      # MCP functionality tests (Unix)
+│   ├── test-transport-modes.bat  # Transport mode tests (Windows) (NEW)
+│   └── test-transport-modes.sh   # Transport mode tests (Unix) (NEW)
 ├── pkg/                 # Reusable packages
 ├── docs/                # Documentation
-├── scripts/             # Utility scripts
-└── go.mod               # Go module definition
+└── go.mod               # Go module definition with official MCP SDK
 ```
 
 ## Installation
@@ -233,35 +274,165 @@ MCP_LLM_PROVIDERS_2_MODEL=llama-2-7b
 
 ## Usage
 
-### Normal Mode
-1. Start the application:
-   ```bash
-   go run cmd/main.go
-   ```
+### Standalone Mode
+Run the application in standalone mode for basic development and testing:
+```bash
+go run cmd/main.go
+```
 
-2. The application will initialize all clients and display status information.
+This will perform health checks and show available services.
 
-### MCP Mode
-To start the application in MCP (Model Context Protocol) mode:
+### MCP Server Mode
+To start the application in MCP (Model Context Protocol) mode with transport support:
+
+#### Basic MCP Mode (Default SSE Transport)
 ```bash
 go run cmd/main.go mcp
 ```
 
-In MCP mode, the application will expose all its functionality as tools that can be accessed through the Model Context Protocol interface.
+#### Explicit Transport Mode Selection
+```bash
+# SSE (Server-Sent Events) mode - Recommended
+go run cmd/main.go mcp --sse
 
-#### Available MCP Tools
-- `database_query` - Query database tables and retrieve data
-- `loki_query` - Query Grafana Loki logs using LogQL
-- `s3_query` - Retrieve and parse JSON data from S3 URLs
-- `sentry_query` - Query Sentry issues and errors
-- `swagger_query` - Parse and query Swagger/OpenAPI specifications
-- `llm_chat` - Interact with large language models for chat and text generation
-- `http_request` - Simulate HTTP requests for testing
+# HTTP mode (uses SSE implementation)
+go run cmd/main.go mcp --http
+
+# Using transport parameter
+go run cmd/main.go mcp --transport sse
+```
+
+#### Debug Mode
+```bash
+# Enable debug logging
+go run cmd/main.go mcp --sse --debug
+```
+
+### Transport Modes
+
+Dev MCP supports three transport modes for MCP communication:
+
+1. **SSE (Server-Sent Events)** - **DEFAULT/FORCED MODE**
+   - HTTP-based transport using Server-Sent Events
+   - Best for web-based AI assistants
+   - Provides real-time bidirectional communication
+   - Default port: 8080
+
+2. **HTTP** - Uses SSE implementation
+   - Standard HTTP transport with SSE backend
+   - Compatible with web browsers and HTTP clients
+
+3. **stdio** - **Forced to SSE Mode**
+   - Traditional stdio communication (forced to SSE for better compatibility)
+   - All stdio requests are automatically redirected to SSE mode
+
+**Note**: As requested, all transport modes currently force the use of SSE (Server-Sent Events) transport for optimal compatibility and performance.
+
+### Available Commands
+
+| Command | Description |
+|---------|-------------|
+| `go run cmd/main.go` | Run in standalone mode with health checks |
+| `go run cmd/main.go mcp` | Start MCP server with default SSE transport |
+| `go run cmd/main.go mcp --sse` | Start MCP server with explicit SSE transport |
+| `go run cmd/main.go mcp --http` | Start MCP server with HTTP transport (uses SSE) |
+| `go run cmd/main.go mcp --stdio` | Start MCP server (forced to SSE mode) |
+| `go run cmd/main.go mcp --debug` | Start MCP server with debug logging |
+
+#### Available MCP Tools (Official SDK Implementation)
+
+Dev MCP exposes 7 powerful tools through the official MCP SDK:
+
+1. **`database_query`** - Database Operations
+   - Query MySQL database tables and schemas
+   - Execute SQL SELECT statements safely
+   - Retrieve table structures and metadata
+   - Support for parameterized queries
+
+2. **`loki_query`** - Log Analysis
+   - Query Grafana Loki logs using LogQL syntax
+   - Time-range based log retrieval
+   - Label filtering and aggregation
+   - Stream-based log data access
+
+3. **`s3_query`** - Cloud Storage Access
+   - Retrieve and parse JSON data from S3 URLs
+   - Support for authenticated S3 buckets
+   - Automatic JSON parsing and formatting
+   - Cross-region S3 access
+
+4. **`sentry_query`** - Error Tracking
+   - Query Sentry issues and error events
+   - Filter by project, environment, and time
+   - Retrieve error details and stack traces
+   - Monitor application health metrics
+
+5. **`swagger_query`** - API Documentation
+   - Parse Swagger/OpenAPI specifications
+   - Extract endpoint definitions and schemas
+   - Validate API documentation structure
+   - Generate API usage examples
+
+6. **`llm_chat`** - AI Integration
+   - Interact with multiple LLM providers (OpenAI, Anthropic, Local)
+   - Support for chat completions and text generation
+   - Provider-agnostic interface
+   - Model configuration and selection
+
+7. **`http_request`** - Request Simulation
+   - Simulate HTTP requests for testing
+   - Support for all HTTP methods (GET, POST, PUT, DELETE, etc.)
+   - Custom headers and payload configuration
+   - Response parsing and validation
+
+#### MCP Resources (Auto-Discovery)
+
+The server automatically discovers and exposes resources through the official MCP SDK:
+
+- **Database Tables**: Automatically discovered table schemas and metadata
+- **Log Streams**: Available Loki log streams and labels
+- **S3 Objects**: Accessible S3 bucket contents and JSON data
+- **API Specifications**: Available Swagger/OpenAPI documentation
+- **Error Reports**: Sentry project issues and error summaries
 
 #### Testing MCP Functionality
-You can test the MCP functionality using the provided test scripts:
+
+**Basic MCP Tests:**
 - On Unix/Linux/macOS: `scripts/test-mcp.sh`
 - On Windows: `scripts/test-mcp.bat`
+
+**Transport Mode Tests:**
+- On Unix/Linux/macOS: `scripts/test-transport-modes.sh`
+- On Windows: `scripts/test-transport-modes.bat`
+
+**Manual Testing Examples:**
+```bash
+# Test SSE transport mode (default)
+go run cmd/main.go mcp --sse --debug
+
+# Test HTTP transport mode (uses SSE backend)
+go run cmd/main.go mcp --http
+
+# Test with transport parameter
+go run cmd/main.go mcp --transport sse
+
+# Test stdio mode (forced to SSE)
+go run cmd/main.go mcp --stdio
+```
+
+**Build and Test:**
+```bash
+# Build the project
+go build -o dev-mcp cmd/main.go
+
+# Run tests
+go test ./...
+
+# Test with different transport modes
+./dev-mcp mcp --sse    # SSE mode
+./dev-mcp mcp --http   # HTTP mode (uses SSE)
+./dev-mcp mcp --stdio  # stdio mode (forced to SSE)
+```
 
 ## Large Language Models (LLM) Service
 
@@ -315,12 +486,23 @@ go test ./...
 
 ## Dependencies
 
-- `github.com/lib/pq` - PostgreSQL driver (deprecated, but kept for compatibility)
+### Core Dependencies
+- `github.com/modelcontextprotocol/go-sdk` - **Official MCP Go SDK** (NEW)
 - `github.com/go-sql-driver/mysql` - MySQL driver
-- `github.com/go-resty/resty/v2` - REST client
+- `github.com/go-resty/resty/v2` - REST client for HTTP requests
 - `github.com/aws/aws-sdk-go` - AWS SDK for S3 integration
-- `github.com/getsentry/sentry-go` - Sentry SDK
-- `gopkg.in/yaml.v2` - YAML parsing
+- `github.com/getsentry/sentry-go` - Sentry SDK for error tracking
+- `gopkg.in/yaml.v2` - YAML configuration parsing
+
+### Legacy Dependencies
+- `github.com/lib/pq` - PostgreSQL driver (deprecated, kept for compatibility)
+
+### Key Features of Official MCP SDK
+- Standards-compliant Model Context Protocol implementation
+- Type-safe tool and resource definitions
+- Multiple transport support (stdio, SSE, HTTP)
+- Structured content handling with official MCP types
+- Session management and lifecycle handling
 
 ## Contributing
 

@@ -20,7 +20,8 @@
       "WebSearch",
       "Bash(go list -m -f '{{.Path}}' github.com/modelcontextprotocol/...)",
       "Bash(go get:*)",
-      "WebFetch(domain:pkg.go.dev)"
+      "WebFetch(domain:pkg.go.dev)",
+      "Bash(go build:*)"
     ],
     "deny": [],
     "ask": []

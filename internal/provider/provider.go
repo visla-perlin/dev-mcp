@@ -30,19 +30,19 @@ type ResourceRegistrar interface {
 type Provider interface {
 	// Name returns the provider name
 	Name() string
-	
+
 	// IsAvailable returns whether the provider is available and ready
 	IsAvailable() bool
-	
+
 	// RegisterTools registers all tools provided by this provider
 	RegisterTools(registrar ToolRegistrar) error
-	
+
 	// RegisterResources registers all resources provided by this provider
 	RegisterResources(registrar ResourceRegistrar) error
-	
+
 	// Close cleans up the provider
 	Close() error
-	
+
 	// HealthCheck performs health check
 	HealthCheck() error
 }

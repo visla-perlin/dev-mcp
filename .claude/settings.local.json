@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir -p dev-mcp/{cmd,internal,pkg,configs,docs,scripts})",
+      "Bash(go mod init github.com/yourusername/dev-mcp)",
+      "Bash(go get github.com/lib/pq)",
+      "Bash(go get github.com/go-resty/resty/v2)",
+      "Bash(go get github.com/aws/aws-sdk-go/aws github.com/aws/aws-sdk-go/service/s3 github.com/aws/aws-sdk-go/aws/session)",
+      "Bash(go get github.com/getsentry/sentry-go)",
+      "Bash(go mod tidy)",
+      "Bash(cat go.mod)",
+      "Bash(go build -o dev-mcp cmd/main.go)",
+      "Bash(go mod init dev-mcp)",
+      "Bash(go build -o dev-mcp ./cmd/main.go)",
+      "Bash(go get github.com/lib/pq github.com/go-resty/resty/v2 github.com/aws/aws-sdk-go/aws github.com/aws/aws-sdk-go/service/s3 github.com/aws/aws-sdk-go/aws/session github.com/getsentry/sentry-go gopkg.in/yaml.v2)",
+      "Bash(cat internal/sentry/sentry.go)",
+      "Bash(./dev-mcp)",
+      "Bash(go get github.com/go-sql-driver/mysql)",
+      "WebFetch(domain:github.com)",
+      "WebSearch",
+      "Bash(go list -m -f '{{.Path}}' github.com/modelcontextprotocol/...)",
+      "Bash(go get:*)",
+      "WebFetch(domain:pkg.go.dev)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

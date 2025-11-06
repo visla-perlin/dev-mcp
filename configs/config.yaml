@@ -1,0 +1,51 @@
+# Application Configuration
+
+server:
+  port: 8080
+  host: localhost
+
+database:
+  host: localhost
+  port: 3306
+  username: root
+  password: password
+  dbname: dev_mcp
+
+loki:
+  host: http://localhost:3100
+  username: ""
+  password: ""
+
+s3:
+  endpoint: ""
+  region: us-east-1
+  access_key: ""
+  secret_key: ""
+  bucket: ""
+
+sentry:
+  dsn: ""
+  environment: development
+  release: "1.0.0"
+
+swagger:
+  url: "/swagger/"
+  filepath: "./docs/swagger.json"
+
+llm:
+  providers:
+    - name: "openai"
+      type: "openai"
+      api_key: "your-openai-api-key"
+      enabled: false
+      model: "gpt-3.5-turbo"
+    - name: "anthropic"
+      type: "anthropic"
+      api_key: "your-anthropic-api-key"
+      enabled: false
+      model: "claude-3-haiku-20240307"
+    - name: "local"
+      type: "local"
+      endpoint: "http://localhost:8000/v1"
+      enabled: false
+      model: "llama-2-7b"

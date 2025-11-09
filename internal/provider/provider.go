@@ -1,56 +1,37 @@
 package provider
 
 import (
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// ToolDefinition represents a tool with its metadata and handler
-type ToolDefinition struct {
-	Tool    *mcp.Tool
-	Handler mcp.ToolHandler
+// ProviderClient defines the interface for MCP provider clients
+type ProviderClient interface {
+	// Test tests the configuration and connection
+	Test(config interface{}) error
+
+	// AddTools adds tools to the MCP server if test passes
+	AddTools(server *mcp.Server, config interface{}) error
 }
 
 // ResourceDefinition represents a resource with its metadata and handler
+// Simplified to generic interface for now - can be expanded later
 type ResourceDefinition struct {
-	Resource *mcp.Resource
-	Handler  mcp.ResourceHandler
-}
-
-// ToolRegistrar defines the interface for registering tools
-type ToolRegistrar interface {
-	RegisterTool(toolDef ToolDefinition)
-}
-
-// ResourceRegistrar defines the interface for registering resources
-type ResourceRegistrar interface {
-	RegisterResource(resDef ResourceDefinition)
-}
-
-// Provider defines the interface for all MCP providers
-type Provider interface {
-	// Name returns the provider name
-	Name() string
-
-	// IsAvailable returns whether the provider is available and ready
-	IsAvailable() bool
-
-	// RegisterTools registers all tools provided by this provider
-	RegisterTools(registrar ToolRegistrar) error
-
-	// RegisterResources registers all resources provided by this provider
-	RegisterResources(registrar ResourceRegistrar) error
-
-	// Close cleans up the provider
-	Close() error
-
-	// HealthCheck performs health check
-	HealthCheck() error
+	Resource interface{}
+	Handler  interface{}
 }
 
 // BaseProvider provides common functionality for all providers
 type BaseProvider struct {
 	name      string
 	available bool
+	status    ProviderStatus
+}
+
+type ProviderStatus struct {
+	Available bool   `json:"available"`
+	Message   string `json:"message"`
+	Error     string `json:"error,omitempty"`
 }
 
 // NewBaseProvider creates a new base provider
@@ -76,15 +57,18 @@ func (bp *BaseProvider) SetAvailable(available bool) {
 	bp.available = available
 }
 
-// Close provides default close implementation (can be overridden)
-func (bp *BaseProvider) Close() error {
-	return nil
+func (bp *BaseProvider) SetStatus(available bool, message string, err error) {
+	bp.available = available
+	bp.status.Available = available
+	bp.status.Message = message
+	if err != nil {
+		bp.status.Error = err.Error()
+	} else {
+		bp.status.Error = ""
+	}
 }
 
-// HealthCheck provides default health check implementation (can be overridden)
-func (bp *BaseProvider) HealthCheck() error {
-	if !bp.available {
-		return nil // No error if not available - just not ready
-	}
+// Close provides default close implementation (can be overridden)
+func (bp *BaseProvider) Close() error {
 	return nil
 }

@@ -5,7 +5,7 @@ server:
   host: localhost
 
 database:
-  host: localhost
+  host: "localhost"
   port: 3306
   username: root
   password: password
@@ -15,6 +15,9 @@ loki:
   host: http://localhost:3100
   username: ""
   password: ""
+  auth_token: ""  # For Grafana Cloud or OAuth
+  organization: "" # Grafana Cloud organization
+  tenant: ""      # Loki tenant ID for multi-tenant setups
 
 s3:
   endpoint: ""
@@ -24,9 +27,16 @@ s3:
   bucket: ""
 
 sentry:
-  dsn: ""
-  environment: development
+  dsn: "https://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@visla.sentry.io/4505479898398720"              # Optional: For event capture
+  auth_token: "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"       # Required: For API calls
+  organization: "4505423981641728"     # Required: For API calls
+  project: "4505479898398720"          # Required: For API calls
+  environment: prod
   release: "1.0.0"
+  issue_queries:
+    "recent_errors": "is:unresolved level:error lastSeen:-1h"
+    "high_priority": "is:unresolved priority:high"
+    "javascript": "is:unresolved platform:javascript"
 
 swagger:
   url: "/swagger/"

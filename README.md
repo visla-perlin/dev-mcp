@@ -44,6 +44,50 @@ The server implements the Model Context Protocol with:
 - **Transport**: SSE-first approach with fallback support for stdio and HTTP
 - **Content Types**: Full support for text, images, and structured data through official MCP types
 
+### Available MCP Tools
+
+All providers implement the `ProviderClient` interface with `Test(config)` and `AddTools(server, config)` methods.
+
+#### Sentry Provider
+- **sentry_get_issues**: Get Sentry issues with optional filtering
+  - Parameters: `query` (string, optional), `limit` (integer, default: 50)
+- **sentry_get_issue_details**: Get detailed information about a specific Sentry issue
+  - Parameters: `issue_id` (string, required)
+- **sentry_create_issue**: Create a new Sentry issue for testing purposes
+  - Parameters: `title` (string, required), `message` (string, required), `level` (string, default: "error")
+
+#### Loki Provider
+- **loki_query**: Query Grafana Loki logs using LogQL
+  - Parameters: `query` (string, required), `limit` (integer, default: 100)
+- **loki_labels**: Get available log labels from Loki
+  - Parameters: None
+
+#### Database Provider
+- **database_query**: Execute SQL queries with security validation
+  - Parameters: `query` (string, required)
+- **database_schema**: Get table schema information
+  - Parameters: `table` (string, optional)
+
+#### S3 Provider
+- **s3_get_object**: Retrieve objects from S3
+  - Parameters: `bucket` (string, required), `key` (string, required)
+- **s3_list_objects**: List objects in S3 bucket
+  - Parameters: `bucket` (string, required), `prefix` (string, optional), `limit` (integer, default: 100)
+
+#### File Provider
+- **file_read**: Read file contents with security validation
+  - Parameters: `path` (string, required)
+- **file_list**: List files in directory with security validation
+  - Parameters: `path` (string, default: "."), `pattern` (string, optional)
+
+### Provider Architecture
+
+Each provider follows the same pattern:
+1. **Test Configuration**: `Test(config interface{}) error` - validates and tests the configuration
+2. **Add Tools**: `AddTools(server *mcp.Server, config interface{}) error` - registers tools if test passes
+3. **Internal Implementation**: Uses existing service clients to provide functionality
+4. **Security**: Built-in security validation for dangerous operations
+
 ## Project Structure
 
 ```

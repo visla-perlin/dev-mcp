@@ -53,9 +53,12 @@ type DatabaseConfig struct {
 
 // LokiConfig represents the Grafana Loki configuration
 type LokiConfig struct {
-	Host     string `yaml:"host"`
-	Username string `yaml:"username"`
-	Password string `yaml:"password"`
+	Host         string `yaml:"host"`
+	Username     string `yaml:"username"`
+	Password     string `yaml:"password"`
+	AuthToken    string `yaml:"auth_token"`   // Alternative to username/password
+	Organization string `yaml:"organization"` // Grafana Cloud organization
+	Tenant       string `yaml:"tenant"`       // Loki tenant ID (for multi-tenant setups)
 }
 
 // S3Config represents the S3 configuration
@@ -69,9 +72,18 @@ type S3Config struct {
 
 // SentryConfig represents the Sentry configuration
 type SentryConfig struct {
-	DSN         string `yaml:"dsn"`
-	Environment string `yaml:"environment"`
-	Release     string `yaml:"release"`
+	DSN             string            `yaml:"dsn"`          // Traditional DSN (auto-captures)
+	AuthToken       string            `yaml:"auth_token"`   // API token for API calls
+	Organization    string            `yaml:"organization"` // Sentry organization name
+	Project         string            `yaml:"project"`      // Sentry project name (single default)
+	Environment     string            `yaml:"environment"`
+	Release         string            `yaml:"release"`
+	BaseURL         string            `yaml:"base_url"`         // Base API URL, e.g. https://sentry.io
+	ProjectIDs      []string          `yaml:"project_ids"`      // Multiple project IDs for queries
+	ExcludeKeywords []string          `yaml:"exclude_keywords"` // Keywords to filter out
+	ZoomWebhookURL  string            `yaml:"zoom_webhook_url"` // Zoom webhook URL
+	ZoomAuth        string            `yaml:"zoom_auth"`        // Zoom authorization header value
+	IssueQueries    map[string]string `yaml:"issue_queries"`    // Named issue queries
 }
 
 // SwaggerConfig represents the Swagger configuration
@@ -184,6 +196,47 @@ func (c *Config) overrideWithEnv() {
 	if release := os.Getenv("MCP_SENTRY_RELEASE"); release != "" {
 		c.Sentry.Release = release
 	}
+	if baseURL := os.Getenv("MCP_SENTRY_BASE_URL"); baseURL != "" {
+		c.Sentry.BaseURL = baseURL
+	}
+	if org := os.Getenv("MCP_SENTRY_ORG"); org != "" {
+		c.Sentry.Organization = org
+	}
+	if project := os.Getenv("MCP_SENTRY_PROJECT"); project != "" {
+		c.Sentry.Project = project
+	}
+	if authToken := os.Getenv("MCP_SENTRY_AUTH_TOKEN"); authToken != "" {
+		c.Sentry.AuthToken = authToken
+	}
+	if projectIDs := os.Getenv("MCP_SENTRY_PROJECT_IDS"); projectIDs != "" {
+		c.Sentry.ProjectIDs = splitAndTrim(projectIDs)
+	}
+	if exclude := os.Getenv("MCP_SENTRY_EXCLUDE_KEYWORDS"); exclude != "" {
+		c.Sentry.ExcludeKeywords = splitAndTrim(exclude)
+	}
+	if zoomWebhook := os.Getenv("MCP_ZOOM_WEBHOOK_URL"); zoomWebhook != "" {
+		c.Sentry.ZoomWebhookURL = zoomWebhook
+	}
+	if zoomAuth := os.Getenv("MCP_ZOOM_AUTH"); zoomAuth != "" {
+		c.Sentry.ZoomAuth = zoomAuth
+	}
+	if issueQueries := os.Getenv("MCP_SENTRY_ISSUE_QUERIES"); issueQueries != "" {
+		// format: name1=query1;name2=query2
+		pairs := strings.Split(issueQueries, ";")
+		if c.Sentry.IssueQueries == nil {
+			c.Sentry.IssueQueries = make(map[string]string)
+		}
+		for _, p := range pairs {
+			parts := strings.SplitN(p, "=", 2)
+			if len(parts) == 2 {
+				name := strings.TrimSpace(parts[0])
+				query := strings.TrimSpace(parts[1])
+				if name != "" && query != "" {
+					c.Sentry.IssueQueries[name] = query
+				}
+			}
+		}
+	}
 
 	// Swagger configuration
 	if url := os.Getenv("MCP_SWAGGER_URL"); url != "" {
@@ -225,4 +278,17 @@ func (c *Config) overrideLLMConfigWithEnv() {
 			c.LLM.Providers[i].Model = model
 		}
 	}
+}
+
+// splitAndTrim splits a comma-separated string and trims spaces, ignoring empty items
+func splitAndTrim(value string) []string {
+	parts := strings.Split(value, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }

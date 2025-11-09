@@ -8,10 +8,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"dev-mcp/internal/database"
-	"dev-mcp/internal/loki"
-	"dev-mcp/internal/s3"
-	"dev-mcp/internal/swagger"
+	"dev-mcp/internal/provider/loki"
+	"dev-mcp/internal/provider/s3"
 )
 
 // ResourceDefinition represents a resource with its metadata and handler
@@ -21,15 +19,8 @@ type ResourceDefinition struct {
 }
 
 // GetAllResources collects all resources from different managers
-func GetAllResources(ctx context.Context, db *database.DB, lokiClient *loki.Client, s3Client *s3.Client, swaggerClient *swagger.Client) []ResourceDefinition {
+func GetAllResources(ctx context.Context, db interface{}, lokiClient *loki.Client, s3Client *s3.S3Client) []ResourceDefinition {
 	var allResources []ResourceDefinition
-
-	// Add database resources
-	if db != nil {
-		dbResources := getDatabaseResources(ctx, db)
-		allResources = append(allResources, dbResources...)
-		log.Printf("Added %d database resources", len(dbResources))
-	}
 
 	// Add Loki resources
 	if lokiClient != nil {
@@ -45,86 +36,10 @@ func GetAllResources(ctx context.Context, db *database.DB, lokiClient *loki.Clie
 		log.Printf("Added %d S3 resources", len(s3Resources))
 	}
 
-	// Add Swagger resources
-	if swaggerClient != nil {
-		swaggerResources := getSwaggerResources(ctx, swaggerClient)
-		allResources = append(allResources, swaggerResources...)
-		log.Printf("Added %d Swagger resources", len(swaggerResources))
-	}
-
 	log.Printf("Total resources registered: %d", len(allResources))
 	return allResources
 }
 
-// getDatabaseResources returns database table resources
-func getDatabaseResources(ctx context.Context, db *database.DB) []ResourceDefinition {
-	var resources []ResourceDefinition
-
-	// Get list of tables
-	tables, err := db.GetTables()
-	if err != nil {
-		log.Printf("Warning: Failed to get database tables: %v", err)
-		return resources
-	}
-
-	for _, table := range tables {
-		resource := &mcp.Resource{
-			URI:         fmt.Sprintf("database://tables/%s", table),
-			Name:        fmt.Sprintf("Table: %s", table),
-			Description: fmt.Sprintf("Database table '%s' with schema and data", table),
-			MIMEType:    "application/json",
-		}
-
-		handler := createTableHandler(db, table)
-		resources = append(resources, ResourceDefinition{
-			Resource: resource,
-			Handler:  handler,
-		})
-	}
-
-	return resources
-}
-
-// createTableHandler creates a handler for a specific table
-func createTableHandler(db *database.DB, tableName string) mcp.ResourceHandler {
-	return func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		// Get table schema
-		schema, err := db.GetTableSchema(tableName)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get table schema: %w", err)
-		}
-
-		// Get sample data (first 10 rows)
-		query := fmt.Sprintf("SELECT * FROM %s LIMIT 10", tableName)
-		sampleData, err := db.Query(query)
-		if err != nil {
-			log.Printf("Warning: Failed to get sample data for table %s: %v", tableName, err)
-			sampleData = []map[string]interface{}{}
-		}
-
-		result := map[string]interface{}{
-			"tableName":  tableName,
-			"schema":     schema,
-			"sampleData": sampleData,
-			"uri":        req.Params.URI,
-		}
-
-		jsonData, err := json.MarshalIndent(result, "", "  ")
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal table data: %w", err)
-		}
-
-		return &mcp.ReadResourceResult{
-			Contents: []*mcp.ResourceContents{
-				{
-					URI:      req.Params.URI,
-					MIMEType: "application/json",
-					Text:     string(jsonData),
-				},
-			},
-		}, nil
-	}
-}
 
 // getLokiResources returns Loki log stream resources
 func getLokiResources(ctx context.Context, client *loki.Client) []ResourceDefinition {
@@ -184,7 +99,7 @@ func createStreamHandler(label string) mcp.ResourceHandler {
 }
 
 // getS3Resources returns S3 bucket resources
-func getS3Resources(ctx context.Context, client *s3.Client) []ResourceDefinition {
+func getS3Resources(ctx context.Context, client *s3.S3Client) []ResourceDefinition {
 	// Create a resource for S3 data access
 	resource := &mcp.Resource{
 		URI:         "s3://buckets/data",
@@ -224,47 +139,4 @@ func getS3Resources(ctx context.Context, client *s3.Client) []ResourceDefinition
 		Resource: resource,
 		Handler:  handler,
 	}}
-}
-
-// getSwaggerResources returns Swagger API resources
-func getSwaggerResources(ctx context.Context, client *swagger.Client) []ResourceDefinition {
-	spec := client.GetSpec()
-	if spec == nil {
-		log.Printf("Warning: No swagger specification loaded")
-		return []ResourceDefinition{}
-	}
-
-	var resources []ResourceDefinition
-
-	// Add main API spec resource
-	apiResource := &mcp.Resource{
-		URI:         "swagger://api/specification",
-		Name:        "API Specification",
-		Description: "Complete Swagger/OpenAPI specification",
-		MIMEType:    "application/json",
-	}
-
-	apiHandler := func(ctx context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
-		jsonData, err := json.MarshalIndent(spec, "", "  ")
-		if err != nil {
-			return nil, fmt.Errorf("failed to marshal API spec: %w", err)
-		}
-
-		return &mcp.ReadResourceResult{
-			Contents: []*mcp.ResourceContents{
-				{
-					URI:      req.Params.URI,
-					MIMEType: "application/json",
-					Text:     string(jsonData),
-				},
-			},
-		}, nil
-	}
-
-	resources = append(resources, ResourceDefinition{
-		Resource: apiResource,
-		Handler:  apiHandler,
-	})
-
-	return resources
 }

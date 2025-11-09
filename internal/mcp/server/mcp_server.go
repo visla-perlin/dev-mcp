@@ -62,7 +62,7 @@ func NewMCPServer(cfg *config.Config) *MCPServer {
 }
 
 // Start starts the MCP server with the specified transport mode
-func (s *MCPServer) Start(port string) error {
+func (s *MCPServer) Start() error {
 	logger := logging.ServerLogger
 	logger.Info("Starting MCP server with authentication",
 		logging.String("transport", s.transport),

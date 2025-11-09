@@ -23,7 +23,8 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	server.NewMCPServer(cfg)
+	mcp := server.NewMCPServer(cfg)
+	mcp.Start()
 
 	fmt.Println("\nTo start as MCP server, run: go run cmd/main.go mcp")
 }
